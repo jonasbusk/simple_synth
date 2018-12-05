@@ -4,10 +4,16 @@ import numpy as np
 
 class Synth(object):
 
-    def __init__(self, rate=44100, master_volume=.5):
+    def __init__(self, rate=44100, master_volume=.8):
         self.rate = rate
+        self.chunk_size = 1024
         self.master_volume = master_volume
 
+        self.octave = 5
+        self.last_key = None
+        self.t = 0 # time
+
+        # create midi table
         freq0 = 8.175799
         ratio = 2**(1.0/12)
         self.midi_table = {i: freq0 * ratio**i for i in range(128)}
@@ -20,12 +26,27 @@ class Synth(object):
         self.stream.close()
         self.p.terminate()
 
-    def sinewave(self, frequency):
-        length = int(1/frequency * self.rate) # one period
-        factor = frequency * (np.pi * 2) / self.rate
-        return np.sin(np.arange(length) * factor)
+    def sinewave(self, frames, frequency, t):
+        p = 2 * np.pi * frequency
+        factor = p / self.rate
+        offset = p * t
+        x = np.arange(frames) * factor + offset
+        y = np.sin(x)
+        return y
 
-    def play_note(self, note=60):
-        frequency = self.midi_table[note]
-        chunk = self.sinewave(frequency) * self.master_volume
-        self.stream.write(chunk.astype(np.float32).tostring())
+    def play_note(self, key):
+        if key is not None:
+            frequency = self.midi_table[self.octave * 12 + key]
+            y = self.sinewave(self.chunk_size, frequency, self.t)
+            self.t += self.chunk_size/self.rate
+        elif key is None and self.last_key is not None:
+            # release: fade one chunk to avoid click
+            frequency = self.midi_table[self.octave * 12 + self.last_key]
+            y = self.sinewave(self.chunk_size, frequency, self.t)
+            y = y * np.linspace(1,0,self.chunk_size)
+        else:
+            y = np.zeros(self.chunk_size)
+            self.t = 0
+        y = y * self.master_volume
+        self.stream.write(y.astype(np.float32).tobytes())
+        self.last_key = key

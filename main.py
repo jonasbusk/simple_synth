@@ -9,8 +9,7 @@ def main():
 
     while True:
         key = kb.get_key()
-        if key is not None:
-            s.play_note(60 + key)
+        s.play_note(key)
 
     kb.terminate()
     s.terminate()

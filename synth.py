@@ -4,10 +4,10 @@ import numpy as np
 
 class Synth(object):
 
-    def __init__(self, keyboard, rate=44100, master_volume=.8):
+    def __init__(self, keyboard, sample_rate=44100, buffer_size=128, master_volume=.8):
         self.keyboard = keyboard
-        self.rate = rate # sample rate
-        self.chunk_size = 256
+        self.sample_rate = sample_rate
+        self.buffer_size = buffer_size
         self.master_volume = master_volume
 
         self.octave = 5
@@ -21,15 +21,19 @@ class Synth(object):
         ratio = 2**(1.0/12)
         self.midi_table = {i: freq0 * ratio**i for i in range(128)}
 
-        # chunks
-        self.chunk_zeros = np.zeros(self.chunk_size)
-        self.chunk_fade_in = np.linspace(0,1,self.chunk_size)
-        self.chunk_fade_out = np.ones(self.chunk_size) - self.chunk_fade_in
+        # buffers
+        self.tmp = np.zeros(self.buffer_size) # tmp buffer
+        self.out = np.zeros(self.buffer_size) # output buffer
+
+        # fixed buffers
+        self.range = np.arange(self.buffer_size)
+        self.fade_in = np.linspace(0, 1, self.buffer_size)
+        self.fade_out = np.ones(self.buffer_size) - self.fade_in
 
         # init audio
         self.p = pyaudio.PyAudio()
         self.stream = self.p.open(format=pyaudio.paFloat32, channels=1,
-                        rate=self.rate, output=1)
+                        rate=self.sample_rate, output=1)
 
     def start(self):
         while True: # main loop
@@ -40,7 +44,7 @@ class Synth(object):
                 self.octave = min(self.octave_max, self.octave + 1)
             if self.keyboard.octave_down:
                 self.octave = max(self.octave_min, self.octave - 1)
-            self.play_note(self.keyboard.key)
+            self.play(self.keyboard.key)
         self.terminate()
 
     def terminate(self):
@@ -48,34 +52,39 @@ class Synth(object):
         self.p.terminate()
         self.keyboard.terminate()
 
-    def sinewave(self, frequency):
+    def sinewave(self, frequency, out):
         p = 2 * np.pi * frequency
-        factor = p / self.rate
+        factor = p / self.sample_rate
         offset = p * self.t
-        x = np.arange(self.chunk_size) * factor + offset
-        y = np.sin(x)
-        return y
+        np.multiply(self.range, factor, out=out) # x
+        np.add(out, offset, out=out) # x
+        np.sin(out, out=out) # y
 
-    def play_note(self, key):
+    def play(self, key):
         # compute note
         if key is not None:
             note = 12 * self.octave + key
         else:
             note = None
-        # compute y
-        y = np.zeros(self.chunk_size)
+        # compute output
+        self.out.fill(0) # clear output buffer
         if note != self.last_note and note is not None:
             # fade in new note
-            y += self.sinewave(self.midi_table[note]) * self.chunk_fade_in
+            self.sinewave(self.midi_table[note], out=self.tmp)
+            np.multiply(self.tmp, self.fade_in, out=self.tmp)
+            np.add(self.out, self.tmp, out=self.out)
         if note != self.last_note and self.last_note is not None:
             # fade out last note
-            y += self.sinewave(self.midi_table[self.last_note]) * self.chunk_fade_out
+            self.sinewave(self.midi_table[self.last_note], out=self.tmp)
+            np.multiply(self.tmp, self.fade_out, out=self.tmp)
+            np.add(self.out, self.tmp, out=self.out)
         if note == self.last_note and note is not None:
             # sustain note
-            y += self.sinewave(self.midi_table[note])
+            self.sinewave(self.midi_table[note], out=self.tmp)
+            np.add(self.out, self.tmp, out=self.out)
         # output
-        y = y * self.master_volume
-        self.stream.write(y.astype(np.float32).tobytes())
+        np.multiply(self.out, self.master_volume, out=self.out)
+        self.stream.write(self.out.astype(np.float32).tobytes())
         # update
         self.last_note = note
-        self.t += self.chunk_size/self.rate
+        self.t += self.buffer_size / self.sample_rate

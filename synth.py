@@ -4,8 +4,9 @@ import numpy as np
 
 class Synth(object):
 
-    def __init__(self, rate=44100, master_volume=.8):
-        self.rate = rate
+    def __init__(self, keyboard, rate=44100, master_volume=.8):
+        self.keyboard = keyboard
+        self.rate = rate # sample rate
         self.chunk_size = 1024
         self.master_volume = master_volume
 
@@ -22,9 +23,16 @@ class Synth(object):
         self.stream = self.p.open(format=pyaudio.paFloat32, channels=1,
                         rate=self.rate, output=1)
 
+    def start(self):
+        while True:
+            key = self.keyboard.get_key()
+            self.play_note(key)
+        self.terminate()
+
     def terminate(self):
         self.stream.close()
         self.p.terminate()
+        self.keyboard.terminate()
 
     def sinewave(self, frames, frequency, t):
         p = 2 * np.pi * frequency

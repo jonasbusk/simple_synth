@@ -11,6 +11,8 @@ class Synth(object):
         self.master_volume = master_volume
 
         self.octave = 5
+        self.octave_min = 2
+        self.octave_max = 9
         self.last_key = None
         self.t = 0 # time
 
@@ -19,14 +21,21 @@ class Synth(object):
         ratio = 2**(1.0/12)
         self.midi_table = {i: freq0 * ratio**i for i in range(128)}
 
+        # init audio
         self.p = pyaudio.PyAudio()
         self.stream = self.p.open(format=pyaudio.paFloat32, channels=1,
                         rate=self.rate, output=1)
 
     def start(self):
         while True:
-            key = self.keyboard.get_key()
-            self.play_note(key)
+            self.keyboard.update()
+            if self.keyboard.quit:
+                break # exit loop
+            if self.keyboard.octave_up:
+                self.octave = min(self.octave_max, self.octave + 1)
+            if self.keyboard.octave_down:
+                self.octave = max(self.octave_min, self.octave - 1)
+            self.play_note(self.keyboard.key)
         self.terminate()
 
     def terminate(self):

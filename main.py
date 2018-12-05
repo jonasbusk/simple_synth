@@ -3,6 +3,7 @@ from synth import Synth
 
 
 def main():
+    print("Press 'esc' to exit.")
     s = Synth(keyboard=Keyboard())
     s.start()
 
